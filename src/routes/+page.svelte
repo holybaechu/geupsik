@@ -198,7 +198,7 @@
                 <div class="space-y-2 pt-4 border-t border-gray-100">
                     <span class="text-sm font-medium text-gray-700 block">날짜 선택</span>
                     <div class="flex justify-center">
-                        <Calendar type="single" bind:value={selectedDate} class="rounded-xl border shadow-xs bg-white" locale="ko-KR" />
+                        <Calendar bind:value={selectedDate} class="rounded-xl border shadow-xs bg-white" locale="ko-KR" />
                     </div>
                 </div>
             </div>
@@ -206,48 +206,37 @@
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 min-h-[500px]">
                 {#if selectedSchool}
                     {#if meals.length > 0}
-                        <div class="space-y-8">
-                            {#each Object.entries(groupedMeals()) as [date, dayMeals]}
-                                <div class="space-y-4">
-                                    <h2 class="text-xl font-bold flex items-center gap-2 text-gray-900 border-b pb-2">
-                                        <span class="bg-blue-100 text-blue-800 text-sm px-2.5 py-1 rounded-md font-semibold tracking-wide">
-                                            {formatYYMMDD(date)}
-                                        </span>
-                                    </h2>
-                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {#each dayMeals as meal}
-                                            <a href="/meal/{encodeURIComponent(getMealId(meal))}" class="group flex flex-col h-full relative overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-xs transition-all hover:shadow-md hover:border-blue-200 cursor-pointer">
-                                                <div class="absolute top-0 left-0 w-full h-1 bg-linear-to-r 
-                                                    {meal.MMEAL_SC_NM === '조식' ? 'from-orange-300 to-amber-400' : 
-                                                     meal.MMEAL_SC_NM === '중식' ? 'from-blue-400 to-cyan-400' : 
-                                                     'from-indigo-500 to-purple-500'}">
-                                                </div>
-                                                <div class="font-bold text-xl mb-4 flex items-center justify-between">
-                                                    <span class="text-gray-900">{meal.MMEAL_SC_NM}</span>
-                                                    <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{meal.CAL_INFO}</span>
-                                                </div>
-                                                <div class="text-sm leading-relaxed text-gray-700 space-y-2 flex-1">
-                                                    {#each meal.DDISH_NM.split('<br/>') as dish}
-                                                        <div class="flex items-start gap-2">
-                                                            <span class="text-gray-300 mt-0.5">•</span>
-                                                            <span class="flex-1">{dish}</span>
-                                                        </div>
-                                                    {/each}
-                                                </div>
-                                                <div class="mt-4 pt-3 border-t border-gray-100 flex items-center gap-4 text-sm text-gray-500">
-                                                    <div class="flex items-center gap-1.5">
-                                                        <ThumbsUp class="w-4 h-4" />
-                                                        <span>{getVoteCount(meal)}</span>
-                                                    </div>
-                                                    <div class="flex items-center gap-1.5">
-                                                        <MessageSquare class="w-4 h-4" />
-                                                        <span>{getCommentCount(meal)}</span>
-                                                    </div>
-                                                </div>
-                                            </a>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            {#each meals as meal}
+                                <a href="/meal/{encodeURIComponent(getMealId(meal))}" class="group flex flex-col h-full relative overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-xs transition-all hover:shadow-md hover:border-blue-200 cursor-pointer">
+                                    <div class="absolute top-0 left-0 w-full h-1 bg-linear-to-r 
+                                        {meal.MMEAL_SC_NM === '조식' ? 'from-orange-300 to-amber-400' : 
+                                         meal.MMEAL_SC_NM === '중식' ? 'from-blue-400 to-cyan-400' : 
+                                         'from-indigo-500 to-purple-500'}">
+                                    </div>
+                                    <div class="font-bold text-xl mb-4 flex items-center justify-between">
+                                        <span class="text-gray-900">{meal.MMEAL_SC_NM}</span>
+                                        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{meal.CAL_INFO}</span>
+                                    </div>
+                                    <div class="text-sm leading-relaxed text-gray-700 space-y-2 flex-1">
+                                        {#each meal.DDISH_NM.split('<br/>') as dish}
+                                            <div class="flex items-start gap-2">
+                                                <span class="text-gray-300 mt-0.5">•</span>
+                                                <span class="flex-1">{dish}</span>
+                                            </div>
                                         {/each}
                                     </div>
-                                </div>
+                                    <div class="mt-4 pt-3 border-t border-gray-100 flex items-center gap-4 text-sm text-gray-500">
+                                        <div class="flex items-center gap-1.5">
+                                            <ThumbsUp class="w-4 h-4" />
+                                            <span>{getVoteCount(meal)}</span>
+                                        </div>
+                                        <div class="flex items-center gap-1.5">
+                                            <MessageSquare class="w-4 h-4" />
+                                            <span>{getCommentCount(meal)}</span>
+                                        </div>
+                                    </div>
+                                </a>
                             {/each}
                         </div>
                     {:else}
