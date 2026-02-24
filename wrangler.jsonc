@@ -30,5 +30,11 @@
       "database_name": "geupsik-db",
       "database_id": "08a216d8-c692-4380-b8af-fc298575ca7d"
     }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "96fe2b255069430aa1e81d97bfc7fa15"
+    },
   ]
 }

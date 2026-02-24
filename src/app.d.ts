@@ -7,8 +7,10 @@ declare global {
 		// interface PageData {}
 		// interface PageState {}
 		interface Platform {
-			env?: { DB?: D1Database };
-			env: Env;
+			env: {
+				DB: D1Database;
+				KV: KVNamespace;
+			};
 			ctx: ExecutionContext;
 			caches: CacheStorage;
 			cf?: IncomingRequestCfProperties
