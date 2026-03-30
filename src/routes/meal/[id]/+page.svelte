@@ -68,7 +68,7 @@
 			checkIfVoted();
 			error = null;
 
-			fetch(`/api/meal/${schoolCode}?from=${date}&to=${date}&officeCode=${officeCode}`)
+			fetch(`/api/meal/${schoolCode}?from=${date}&to=${date}&officeCode=${officeCode}&type=${encodeURIComponent(mealType)}`)
 				.then(async (res) => {
 					if (!res.ok) throw new Error('급식 정보를 불러오는데 실패했습니다.');
 					return res.json();

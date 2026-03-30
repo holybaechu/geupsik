@@ -1,6 +1,6 @@
 import type { RequestHandler } from '@sveltejs/kit';
 
-export const GET: RequestHandler = async ({ platform, params }) => {
+export const GET: RequestHandler = async ({ platform, params, url }) => {
 	const db = platform?.env?.DB;
 	if (!db) {
 		return new Response(JSON.stringify({ error: 'Database not available' }), { status: 500 });

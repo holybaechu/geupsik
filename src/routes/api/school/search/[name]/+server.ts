@@ -12,7 +12,7 @@ export async function GET({ params, platform }) {
 	const cachedData = await getCachedData<any>(platform, cacheKey);
 	if (cachedData) {
 		return new Response(JSON.stringify(cachedData), {
-			headers: { 'Content-Type': 'application/json' }
+			headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400' }
 		});
 	}
 
@@ -51,7 +51,8 @@ export async function GET({ params, platform }) {
 
 	return new Response(responseData, {
 		headers: {
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			'Cache-Control': shouldCache ? 'public, s-maxage=3600, stale-while-revalidate=86400' : 'no-store'
 		}
 	});
 }

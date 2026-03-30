@@ -38,7 +38,10 @@ export async function GET({ params, url, platform }) {
 			optimizedMeals = cachedData.meals;
 		} else {
 			return new Response(JSON.stringify(cachedData), {
-				headers: { 'Content-Type': 'application/json' }
+				headers: { 
+					'Content-Type': 'application/json', 
+					'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600' 
+				}
 			});
 		}
 	}
@@ -85,6 +88,11 @@ export async function GET({ params, url, platform }) {
 
 		const cacheData = { meals: optimizedMeals };
 		setCachedData(platform, cacheKey, cacheData);
+	}
+
+	const mealTypeFilter = url.searchParams.get('type');
+	if (mealTypeFilter) {
+		optimizedMeals = optimizedMeals.filter((m) => m.type === mealTypeFilter);
 	}
 
 	const mealIds = optimizedMeals.map((m) => m.id);
@@ -135,7 +143,8 @@ export async function GET({ params, url, platform }) {
 
 	return new Response(JSON.stringify({ meals: optimizedMeals }), {
 		headers: {
-			'Content-Type': 'application/json'
+			'Content-Type': 'application/json',
+			'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600'
 		}
 	});
 }

@@ -15,19 +15,20 @@ export const POST: RequestHandler = async ({ platform, request }) => {
 	try {
 		const placeholders = mealIds.map(() => '?').join(',');
 
-		const votesResult = await db
-			.prepare(
-				`SELECT meal_id, COUNT(*) as count FROM votes WHERE meal_id IN (${placeholders}) GROUP BY meal_id`
-			)
-			.bind(...mealIds)
-			.all();
-
-		const commentsResult = await db
-			.prepare(
-				`SELECT meal_id, COUNT(*) as count FROM comments WHERE meal_id IN (${placeholders}) GROUP BY meal_id`
-			)
-			.bind(...mealIds)
-			.all();
+		const [votesResult, commentsResult] = await Promise.all([
+			db
+				.prepare(
+					`SELECT meal_id, COUNT(*) as count FROM votes WHERE meal_id IN (${placeholders}) GROUP BY meal_id`
+				)
+				.bind(...mealIds)
+				.all(),
+			db
+				.prepare(
+					`SELECT meal_id, COUNT(*) as count FROM comments WHERE meal_id IN (${placeholders}) GROUP BY meal_id`
+				)
+				.bind(...mealIds)
+				.all()
+		]);
 
 		const counts: Record<string, { votes: number; comments: number }> = {};
 
