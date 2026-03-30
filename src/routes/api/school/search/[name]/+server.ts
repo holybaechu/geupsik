@@ -5,7 +5,6 @@ export async function GET({ params, platform }) {
     const { name } = params;
     
     const apiUrl = `${API_BASE_URL}/schoolInfo?Type=${API_TYPE}&SCHUL_NM=${encodeURIComponent(name)}`;
-    const db = platform?.env?.DB;
     let neisData: any = null;
     let responseData = "";
     const cacheKey = `school:search:${encodeURIComponent(name)}`;

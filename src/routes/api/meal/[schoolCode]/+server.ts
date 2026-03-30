@@ -16,6 +16,10 @@ export async function GET({ params, url, platform }) {
         });
     }
 
+    const todayKST = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10).replace(/-/g, '');
+    const effectiveFrom = from || todayKST;
+    const effectiveTo = to || todayKST;
+
     let apiUrl = `${API_BASE_URL}/mealServiceDietInfo?Type=${API_TYPE}&ATPT_OFCDC_SC_CODE=${officeCode}&SD_SCHUL_CODE=${schoolCode}`;
     if (from) apiUrl += `&MLSV_FROM_YMD=${from}`;
     if (to) apiUrl += `&MLSV_TO_YMD=${to}`;
@@ -23,7 +27,7 @@ export async function GET({ params, url, platform }) {
     const db = platform?.env?.DB;
     let neisData: any = null;
     let optimizedMeals: any[] = [];
-    const cacheKey = `meal:search:${officeCode}:${schoolCode}:${from || 'none'}:${to || 'none'}`;
+    const cacheKey = `meal:search:${officeCode}:${schoolCode}:${effectiveFrom}:${effectiveTo}`;
 
     const cachedData = await getCachedData<any>(platform, cacheKey);
     if (cachedData) {
