@@ -19,5 +19,8 @@
       "database_name": "geupsik-db",
       "database_id": "08a216d8-c692-4380-b8af-fc298575ca7d"
     }
-  ]
+  ],
+  "triggers": {
+    "crons": ["0 0 * * *"]
+  }
 }

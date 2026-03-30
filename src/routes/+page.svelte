@@ -10,6 +10,26 @@
     import { Search, CircleAlert, ThumbsUp, MessageSquare } from "@lucide/svelte";
     import type { OptimizedSchool, OptimizedMeal } from "$lib/types";
 
+    export const snapshot = {
+        capture: () => ({
+            name,
+            schools,
+            selectedSchool,
+            selectedDate: selectedDate ? `${selectedDate.year}-${String(selectedDate.month).padStart(2, '0')}-${String(selectedDate.day).padStart(2, '0')}` : null,
+            initialOffice: selectedOfficeCode
+        }),
+        restore: (data) => {
+            name = data.name;
+            schools = data.schools;
+            selectedSchool = data.selectedSchool;
+            if (data.selectedDate) {
+                const [year, month, day] = data.selectedDate.split('-');
+                selectedDate = new CalendarDate(parseInt(year), parseInt(month), parseInt(day));
+            }
+            // `selectedOfficeCode` is derived, but we can restore the search param state implicitly via schools/selectedSchool
+        }
+    };
+
     let name = $state(page.url.searchParams.get("name") || "")
     let schools = $state<OptimizedSchool[]>([])
     let error = $state<string | null>(null)

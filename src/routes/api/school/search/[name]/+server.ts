@@ -1,4 +1,5 @@
 import { API_BASE_URL, API_TYPE } from "$lib/constants";
+import { getCachedData, setCachedData } from "$lib/server/cache";
 
 export async function GET({ params, platform }) {
     const { name } = params;
@@ -9,25 +10,11 @@ export async function GET({ params, platform }) {
     let responseData = "";
     const cacheKey = `school:search:${encodeURIComponent(name)}`;
 
-    if (db) {
-        try {
-            const cached = await db.prepare(
-                "SELECT response_data, created_at FROM api_cache WHERE cache_key = ?"
-            ).bind(cacheKey).first();
-
-            if (cached) {
-                const createdAt = new Date((cached.created_at as string).replace(' ', 'T') + 'Z');
-                const ageMs = Date.now() - createdAt.getTime();
-                
-                if (ageMs < 24 * 60 * 60 * 1000) {
-                    return new Response(cached.response_data as string, {
-                        headers: { "Content-Type": "application/json" }
-                    });
-                }
-            }
-        } catch (e) {
-            // Ignore cache read errors
-        }
+    const cachedData = await getCachedData<any>(platform, cacheKey);
+    if (cachedData) {
+        return new Response(JSON.stringify(cachedData), {
+            headers: { "Content-Type": "application/json" }
+        });
     }
 
     const res = await fetch(apiUrl, { method: "GET" });
@@ -60,25 +47,7 @@ export async function GET({ params, platform }) {
     }
 
     if (shouldCache) {
-        if (db && platform?.ctx?.waitUntil) {
-            platform.ctx.waitUntil((async () => {
-                try {
-                    await db.prepare(
-                        "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                    ).bind(cacheKey, responseData).run();
-                } catch (e) {
-                    // Ignore cache write errors
-                }
-            })());
-        } else if (db) {
-            try {
-                await db.prepare(
-                    "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                ).bind(cacheKey, responseData).run();
-            } catch (e) {
-                // Ignore cache write errors
-            }
-        }
+        setCachedData(platform, cacheKey, responseData);
     }
 
     return new Response(responseData, {

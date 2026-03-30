@@ -3,7 +3,6 @@
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { ArrowLeft, ThumbsUp, MessageSquare, Send } from "@lucide/svelte";
-    import { goto } from '$app/navigation';
     import type { OptimizedMeal } from "$lib/types";
 
     const params = $derived(page.params as { id: string });
@@ -158,7 +157,7 @@
 
 <div class="min-h-screen bg-gray-50/50 p-6 md:p-12">
     <div class="mx-auto max-w-3xl">
-        <Button variant="ghost" class="mb-6 -ml-3" onclick={() => goto('/')}>
+        <Button variant="ghost" class="mb-6 -ml-3" onclick={() => history.back()}>
             <ArrowLeft class="w-4 h-4 mr-2" />
             돌아가기
         </Button>
@@ -170,7 +169,7 @@
         {:else if error}
             <div class="text-center py-20">
                 <div class="text-red-500 mb-4 font-medium">{error}</div>
-                <Button onclick={() => goto('/')}>홈으로 돌아가기</Button>
+                <Button onclick={() => history.back()}>이전 페이지로 돌아가기</Button>
             </div>
         {:else if meal}
             <div class="space-y-6">
@@ -251,7 +250,7 @@
         {:else}
             <div class="text-center py-20">
                 <div class="text-gray-500 mb-4">급식 정보를 찾을 수 없습니다.</div>
-                <Button onclick={() => goto('/')}>홈으로 돌아가기</Button>
+                <Button onclick={() => history.back()}>이전 페이지로 돌아가기</Button>
             </div>
         {/if}
     </div>

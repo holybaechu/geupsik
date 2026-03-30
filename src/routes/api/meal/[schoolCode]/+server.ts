@@ -1,4 +1,5 @@
 import { API_BASE_URL, API_TYPE } from "$lib/constants";
+import { getCachedData, setCachedData } from "$lib/server/cache";
 
 export async function GET({ params, url, platform }) {
     const { schoolCode } = params;
@@ -24,33 +25,14 @@ export async function GET({ params, url, platform }) {
     let optimizedMeals: any[] = [];
     const cacheKey = `meal:search:${officeCode}:${schoolCode}:${from || 'none'}:${to || 'none'}`;
 
-    if (db) {
-        try {
-            const cached = await db.prepare(
-                "SELECT response_data, created_at FROM api_cache WHERE cache_key = ?"
-            ).bind(cacheKey).first();
-
-            if (cached) {
-                const createdAt = new Date((cached.created_at as string).replace(' ', 'T') + 'Z');
-                const ageMs = Date.now() - createdAt.getTime();
-                
-                if (ageMs < 24 * 60 * 60 * 1000) {
-                    try {
-                        const parsed = JSON.parse(cached.response_data as string);
-                        if (parsed.meals) {
-                            optimizedMeals = parsed.meals;
-                        } else {
-                            return new Response(cached.response_data as string, {
-                                headers: { "Content-Type": "application/json" }
-                            });
-                        }
-                    } catch (e) {
-                        // Ignore parse error
-                    }
-                }
-            }
-        } catch (e) {
-            // Ignore cache read errors
+    const cachedData = await getCachedData<any>(platform, cacheKey);
+    if (cachedData) {
+        if (cachedData.meals) {
+            optimizedMeals = cachedData.meals;
+        } else {
+            return new Response(JSON.stringify(cachedData), {
+                headers: { "Content-Type": "application/json" }
+            });
         }
     }
 
@@ -74,24 +56,8 @@ export async function GET({ params, url, platform }) {
                 shouldCache = false;
             }
 
-            if (shouldCache && db && platform?.ctx?.waitUntil) {
-                platform.ctx.waitUntil((async () => {
-                    try {
-                        await db.prepare(
-                            "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                        ).bind(cacheKey, errorData).run();
-                    } catch (e) {
-                        // Ignore cache write errors
-                    }
-                })());
-            } else if (shouldCache && db) {
-                try {
-                    await db.prepare(
-                        "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                    ).bind(cacheKey, errorData).run();
-                } catch (e) {
-                    console.error("Cache write error:", e);
-                }
+            if (shouldCache) {
+                setCachedData(platform, cacheKey, errorData);
             }
             
             return new Response(errorData, {
@@ -110,27 +76,8 @@ export async function GET({ params, url, platform }) {
             nutrients: m.NTR_INFO
         }));
 
-        const cacheData = JSON.stringify({ meals: optimizedMeals });
-
-        if (db && platform?.ctx?.waitUntil) {
-            platform.ctx.waitUntil((async () => {
-                try {
-                    await db.prepare(
-                        "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                    ).bind(cacheKey, cacheData).run();
-                } catch (e) {
-                    console.error("Cache write error:", e);
-                }
-            })());
-        } else if (db) {
-            try {
-                await db.prepare(
-                    "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-                ).bind(cacheKey, cacheData).run();
-            } catch (e) {
-                // Ignore cache write errors
-            }
-        }
+        const cacheData = { meals: optimizedMeals };
+        setCachedData(platform, cacheKey, cacheData);
     }
 
     const mealIds = optimizedMeals.map(m => m.id);
