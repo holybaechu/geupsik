@@ -20,42 +20,156 @@ export async function GET({ params, url, platform }) {
     if (to) apiUrl += `&MLSV_TO_YMD=${to}`;
 
     const db = platform?.env?.DB;
+    let neisData: any = null;
+    let optimizedMeals: any[] = [];
+    const cacheKey = `meal:search:${officeCode}:${schoolCode}:${from || 'none'}:${to || 'none'}`;
 
     if (db) {
         try {
             const cached = await db.prepare(
                 "SELECT response_data, created_at FROM api_cache WHERE cache_key = ?"
-            ).bind(apiUrl).first();
+            ).bind(cacheKey).first();
 
             if (cached) {
                 const createdAt = new Date((cached.created_at as string).replace(' ', 'T') + 'Z');
                 const ageMs = Date.now() - createdAt.getTime();
                 
                 if (ageMs < 24 * 60 * 60 * 1000) {
-                    return new Response(cached.response_data as string, {
-                        headers: { "Content-Type": "application/json" }
-                    });
+                    try {
+                        const parsed = JSON.parse(cached.response_data as string);
+                        if (parsed.meals) {
+                            optimizedMeals = parsed.meals;
+                        } else {
+                            return new Response(cached.response_data as string, {
+                                headers: { "Content-Type": "application/json" }
+                            });
+                        }
+                    } catch (e) {
+                        // Ignore parse error
+                    }
                 }
             }
         } catch (e) {
-            console.error("Cache read error:", e);
+            // Ignore cache read errors
         }
     }
 
-    const res = await fetch(apiUrl);
-    const data = await res.text();
-
-    if (db) {
+    if (optimizedMeals.length === 0) {
+        const res = await fetch(apiUrl);
+        const rawNeisData = await res.text();
+        
         try {
-            await db.prepare(
-                "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
-            ).bind(apiUrl, data).run();
+            neisData = JSON.parse(rawNeisData);
         } catch (e) {
-            console.error("Cache write error:", e);
+            return new Response(rawNeisData, {
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
+        if (!neisData.mealServiceDietInfo) {
+            const errorData = JSON.stringify(neisData);
+            
+            let shouldCache = true;
+            if (neisData.RESULT && neisData.RESULT.CODE && neisData.RESULT.CODE.startsWith('ERROR')) {
+                shouldCache = false;
+            }
+
+            if (shouldCache && db && platform?.ctx?.waitUntil) {
+                platform.ctx.waitUntil((async () => {
+                    try {
+                        await db.prepare(
+                            "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
+                        ).bind(cacheKey, errorData).run();
+                    } catch (e) {
+                        // Ignore cache write errors
+                    }
+                })());
+            } else if (shouldCache && db) {
+                try {
+                    await db.prepare(
+                        "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
+                    ).bind(cacheKey, errorData).run();
+                } catch (e) {
+                    console.error("Cache write error:", e);
+                }
+            }
+            
+            return new Response(errorData, {
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+
+        const rawMeals = neisData.mealServiceDietInfo[1].row;
+        optimizedMeals = rawMeals.map((m: any) => ({
+            id: `${m.ATPT_OFCDC_SC_CODE}-${m.SD_SCHUL_CODE}-${m.MLSV_YMD}-${m.MMEAL_SC_NM}`,
+            schoolName: m.SCHUL_NM,
+            date: m.MLSV_YMD,
+            type: m.MMEAL_SC_NM,
+            dishes: m.DDISH_NM,
+            calories: m.CAL_INFO,
+            nutrients: m.NTR_INFO
+        }));
+
+        const cacheData = JSON.stringify({ meals: optimizedMeals });
+
+        if (db && platform?.ctx?.waitUntil) {
+            platform.ctx.waitUntil((async () => {
+                try {
+                    await db.prepare(
+                        "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
+                    ).bind(cacheKey, cacheData).run();
+                } catch (e) {
+                    console.error("Cache write error:", e);
+                }
+            })());
+        } else if (db) {
+            try {
+                await db.prepare(
+                    "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
+                ).bind(cacheKey, cacheData).run();
+            } catch (e) {
+                // Ignore cache write errors
+            }
         }
     }
 
-    return new Response(data, {
+    const mealIds = optimizedMeals.map(m => m.id);
+
+    let counts: Record<string, { votes: number; comments: number }> = {};
+
+    if (db && mealIds.length > 0) {
+        try {
+            const placeholders = mealIds.map(() => '?').join(',');
+            
+            const [votesResult, commentsResult] = await Promise.all([
+                db.prepare(`SELECT meal_id, COUNT(*) as count FROM votes WHERE meal_id IN (${placeholders}) GROUP BY meal_id`).bind(...mealIds).all(),
+                db.prepare(`SELECT meal_id, COUNT(*) as count FROM comments WHERE meal_id IN (${placeholders}) GROUP BY meal_id`).bind(...mealIds).all()
+            ]);
+
+            for (const mealId of mealIds) {
+                counts[mealId] = { votes: 0, comments: 0 };
+            }
+
+            for (const row of votesResult.results || []) {
+                const r = row as { meal_id: string; count: number };
+                if (counts[r.meal_id]) counts[r.meal_id].votes = r.count;
+            }
+
+            for (const row of commentsResult.results || []) {
+                const r = row as { meal_id: string; count: number };
+                if (counts[r.meal_id]) counts[r.meal_id].comments = r.count;
+            }
+        } catch (e) {
+            // Ignore fetch count errors
+        }
+    }
+
+    for (const meal of optimizedMeals) {
+        meal.votes = counts[meal.id]?.votes || 0;
+        meal.comments = counts[meal.id]?.comments || 0;
+    }
+
+    return new Response(JSON.stringify({ meals: optimizedMeals }), {
         headers: {
             "Content-Type": "application/json",
         },

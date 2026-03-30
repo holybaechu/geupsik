@@ -4,7 +4,7 @@
     import { Input } from "$lib/components/ui/input";
     import { ArrowLeft, ThumbsUp, MessageSquare, Send } from "@lucide/svelte";
     import { goto } from '$app/navigation';
-    import type { MealInfo } from "$lib/types";
+    import type { OptimizedMeal } from "$lib/types";
 
     const params = $derived(page.params as { id: string });
     const mealId = $derived(decodeURIComponent(params.id));
@@ -12,7 +12,7 @@
     const officeCode = $derived(parts[0] || '');
     const schoolCode = $derived(parts[1] || '');
     const date = $derived(parts[2] || '');
-    const mealType = $derived(parts[3] || '');
+    const mealType = $derived(parts.slice(3).join('-') || '');
 
     function formatDate(ymd: string) {
         if (!ymd || ymd.length !== 8) return ymd;
@@ -28,7 +28,7 @@
         "석식": "from-indigo-500 to-purple-500"
     };
 
-    let meal = $state<MealInfo | null>(null);
+    let meal = $state<OptimizedMeal | null>(null);
     let votes = $state(0);
     let hasVoted = $state(false);
     let comments = $state<{id: number, text: string, created_at: string}[]>([]);
@@ -44,18 +44,6 @@
             localStorage.setItem('userFingerprint', fp);
         }
         return fp;
-    }
-
-    async function loadVotes() {
-        try {
-            const res = await fetch(`/api/votes/${encodeURIComponent(mealId)}`);
-            if (res.ok) {
-                const data = await res.json();
-                votes = data.count;
-            }
-        } catch (e) {
-            console.error('Failed to load votes:', e);
-        }
     }
 
     async function loadComments() {
@@ -76,7 +64,7 @@
     }
 
     $effect(() => {
-        if (schoolCode && date && officeCode) {
+        if (schoolCode && date && officeCode && mealType) {
             fingerprint = getFingerprint();
             checkIfVoted();
             error = null;
@@ -87,13 +75,18 @@
                     return res.json();
                 })
                 .then(data => {
-                    if (data.mealServiceDietInfo) {
-                        const fetchedMeals = data.mealServiceDietInfo[1].row;
-                        meal = fetchedMeals.find((m: MealInfo) => m.MMEAL_SC_NM === mealType) || null;
+                    if (data.meals) {
+                        meal = data.meals.find((m: OptimizedMeal) => m.type === mealType) || null;
+                        if (meal) {
+                            votes = meal.votes || 0;
+                        }
                         if (!meal) error = "해당하는 급식 정보를 찾을 수 없습니다.";
                     } else {
+                        meal = null;
                         if (data.RESULT && data.RESULT.CODE !== "INFO-200") {
                             error = data.RESULT.MESSAGE;
+                        } else if (data.error) {
+                            error = data.error;
                         } else {
                             error = "급식 정보를 찾을 수 없습니다.";
                         }
@@ -101,11 +94,11 @@
                     loading = false;
                 })
                 .catch(e => {
+                    meal = null;
                     error = e.message || "급식 정보를 불러오는 중 오류가 발생했습니다.";
                     loading = false;
                 });
 
-            loadVotes();
             loadComments();
         } else {
             error = "잘못된 접근입니다.";
@@ -182,19 +175,19 @@
         {:else if meal}
             <div class="space-y-6">
                 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div class="h-2 bg-linear-to-r {mealTypeColors[meal.MMEAL_SC_NM] || 'from-gray-400 to-gray-500'}"></div>
+                    <div class="h-2 bg-linear-to-r {mealTypeColors[meal.type] || 'from-gray-400 to-gray-500'}"></div>
                     <div class="p-6">
                         <div class="flex items-center justify-between mb-4">
                             <div>
-                                <h1 class="text-2xl font-bold text-gray-900">{meal.MMEAL_SC_NM}</h1>
-                                <span class="text-sm text-gray-500">{meal.SCHUL_NM}</span>
+                                <h1 class="text-2xl font-bold text-gray-900">{meal.type}</h1>
+                                <span class="text-sm text-gray-500">{meal.schoolName}</span>
                             </div>
                             <span class="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">{formatDate(date)}</span>
                         </div>
-                        <div class="text-sm text-gray-500 mb-6">{meal.CAL_INFO}</div>
+                        <div class="text-sm text-gray-500 mb-6">{meal.calories}</div>
 
                         <div class="space-y-2 mb-6">
-                            {#each meal.DDISH_NM.split('<br/>') as dish}
+                            {#each meal.dishes.split('<br/>') as dish}
                                 <div class="flex items-start gap-2 text-gray-700">
                                     <span class="text-gray-300 mt-0.5">•</span>
                                     <span class="flex-1">{dish}</span>

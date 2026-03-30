@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount, untrack } from "svelte";
     import { goto } from "$app/navigation";
     import { page } from "$app/state";
     import * as Select from "$lib/components/ui/select";
@@ -7,16 +8,21 @@
     import { Calendar } from "$lib/components/ui/calendar";
     import { CalendarDate, today, getLocalTimeZone, type DateValue } from "@internationalized/date";
     import { Search, CircleAlert, ThumbsUp, MessageSquare } from "@lucide/svelte";
-    import type { SchoolInfo, MealInfo } from "$lib/types";
+    import type { OptimizedSchool, OptimizedMeal } from "$lib/types";
 
     let name = $state(page.url.searchParams.get("name") || "")
-    let schools = $state<SchoolInfo[]>([])
+    let schools = $state<OptimizedSchool[]>([])
     let error = $state<string | null>(null)
 
     let selectedSchool = $state<string>(page.url.searchParams.get("school") || "")
-    let selectedOfficeCode = $state<string>(page.url.searchParams.get("office") || "")
+    const initialOffice = page.url.searchParams.get("office") || "";
+    let selectedOfficeCode = $derived(
+        (selectedSchool && schools.length > 0) 
+            ? schools.find(s => s.schoolCode === selectedSchool)?.officeCode ?? initialOffice
+            : initialOffice
+    );
     const schoolSelectContent = $derived(
-        schools.find((s) => s.SD_SCHUL_CODE === selectedSchool)?.SCHUL_NM ?? "학교를 선택해주세요"
+        schools.find((s) => s.schoolCode === selectedSchool)?.schoolName ?? "학교를 선택해주세요"
     );
 
     let selectedDate = $state<DateValue>((() => {
@@ -30,31 +36,34 @@
         return today(getLocalTimeZone());
     })());
 
-    function updateUrlParams() {
-        const url = new URL(window.location.href);
-        if (name) url.searchParams.set('name', name);
-        else url.searchParams.delete('name');
-        
-        if (selectedSchool) url.searchParams.set('school', selectedSchool);
-        else url.searchParams.delete('school');
-        
-        if (selectedOfficeCode) url.searchParams.set('office', selectedOfficeCode);
-        else url.searchParams.delete('office');
-        
-        if (selectedDate) {
-            url.searchParams.set('date', `${selectedDate.year}-${String(selectedDate.month).padStart(2, '0')}-${String(selectedDate.day).padStart(2, '0')}`);
-        }
-        
-        goto(url.toString(), { replaceState: true, keepFocus: true });
-    }
-
     $effect(() => {
-        if (name !== undefined || selectedSchool !== undefined || selectedDate !== undefined || selectedOfficeCode !== undefined) {
-            updateUrlParams();
-        }
+        const n = name;
+        const s = selectedSchool;
+        const d = selectedDate;
+        const o = selectedOfficeCode;
+        
+        const timeout = setTimeout(() => {
+            const url = new URL(window.location.href);
+            if (n) url.searchParams.set('name', n);
+            else url.searchParams.delete('name');
+            
+            if (s) url.searchParams.set('school', s);
+            else url.searchParams.delete('school');
+            
+            if (o) url.searchParams.set('office', o);
+            else url.searchParams.delete('office');
+            
+            if (d) {
+                url.searchParams.set('date', `${d.year}-${String(d.month).padStart(2, '0')}-${String(d.day).padStart(2, '0')}`);
+            }
+            
+            goto(url.toString(), { replaceState: true, keepFocus: true });
+        }, 300);
+
+        return () => clearTimeout(timeout);
     });
 
-    $effect(() => {
+    onMount(() => {
         if (name && schools.length === 0) {
             search();
         }
@@ -67,8 +76,8 @@
             const res = await fetch(`/api/school/search/${encodeURIComponent(name)}`)
             if (!res.ok) throw new Error("학교 검색에 실패했습니다.");
             const data = await res.json();
-            if (data.schoolInfo) {
-                schools = data.schoolInfo[1].row;
+            if (data.schools) {
+                schools = data.schools;
             } else {
                 schools = [];
                 error = "검색 결과가 없습니다.";
@@ -79,17 +88,7 @@
         }
     }
 
-    let meals = $state<MealInfo[]>([])
-    let groupedMeals = $derived(() => {
-        const groups: Record<string, any[]> = {};
-        for (const meal of meals) {
-            if (!groups[meal.MLSV_YMD]) {
-                groups[meal.MLSV_YMD] = [];
-            }
-            groups[meal.MLSV_YMD].push(meal);
-        }
-        return groups;
-    });
+    let meals = $state<OptimizedMeal[]>([])
 
     const mealOrder: Record<string, number> = {
         "조식": 1,
@@ -97,20 +96,7 @@
         "석식": 3
     };
 
-    function formatYYMMDD(ymd: string) {
-        if (!ymd || ymd.length !== 8) return ymd;
-        const year = ymd.substring(2, 4);
-        const month = ymd.substring(4, 6);
-        const day = ymd.substring(6, 8);
-        return `${year}.${month}.${day}`;
-    }
-
     $effect(() => {
-        if (selectedSchool && schools.length > 0) {
-            const school = schools.find(s => s.SD_SCHUL_CODE === selectedSchool);
-            if (school) selectedOfficeCode = school.ATPT_OFCDC_SC_CODE;
-        }
-
         if (selectedSchool && selectedDate && selectedOfficeCode) {
             error = null;
             const dateStr = selectedDate.toString().replace(/-/g, "");
@@ -120,20 +106,21 @@
                     return res.json();
                 })
                 .then(data => {
-                    if (data.mealServiceDietInfo) {
-                        const fetchedMeals = data.mealServiceDietInfo[1].row;
-                        meals = fetchedMeals.sort((a: MealInfo, b: MealInfo) => {
-                            if (a.MLSV_YMD !== b.MLSV_YMD) {
-                                return a.MLSV_YMD.localeCompare(b.MLSV_YMD);
+                    if (data.meals) {
+                        meals = data.meals.sort((a: OptimizedMeal, b: OptimizedMeal) => {
+                            if (a.date !== b.date) {
+                                return a.date.localeCompare(b.date);
                             }
-                            const orderA = mealOrder[a.MMEAL_SC_NM] || 4;
-                            const orderB = mealOrder[b.MMEAL_SC_NM] || 4;
+                            const orderA = mealOrder[a.type] || 4;
+                            const orderB = mealOrder[b.type] || 4;
                             return orderA - orderB;
                         });
                     } else {
                         meals = []
                         if (data.RESULT && data.RESULT.CODE !== "INFO-200") {
                             error = data.RESULT.MESSAGE;
+                        } else if (data.error) {
+                            error = data.error;
                         }
                     }
                 })
@@ -146,48 +133,6 @@
         }
     })
 
-    function getMealId(meal: MealInfo) {
-        return `${meal.ATPT_OFCDC_SC_CODE}-${selectedSchool}-${meal.MLSV_YMD}-${meal.MMEAL_SC_NM}`;
-    }
-
-    let countsCache = $state<Record<string, { votes: number; comments: number }>>({});
-
-    function getVoteCount(meal: MealInfo) {
-        const mealId = getMealId(meal);
-        return countsCache[mealId]?.votes || 0;
-    }
-
-    function getCommentCount(meal: MealInfo) {
-        const mealId = getMealId(meal);
-        return countsCache[mealId]?.comments || 0;
-    }
-
-    async function fetchCounts() {
-        if (!meals.length) return;
-        
-        const mealIds = meals.map(getMealId);
-        
-        try {
-            const res = await fetch('/api/counts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mealIds })
-            });
-            
-            if (res.ok) {
-                const data = await res.json();
-                countsCache = { ...countsCache, ...data.counts };
-            }
-        } catch (e) {
-            console.error('Failed to fetch counts:', e);
-        }
-    }
-
-    $effect(() => {
-        if (meals.length > 0) {
-            fetchCounts();
-        }
-    });
 </script>
 
 <div class="min-h-screen bg-gray-50/50 p-6 md:p-12">
@@ -211,16 +156,13 @@
                     {#if schools.length > 0}
                         <div class="space-y-2 animate-in fade-in slide-in-from-top-2">
                             <label for="school-select" class="text-sm font-medium text-gray-700">학교 선택</label>
-                            <Select.Root type="single" bind:value={selectedSchool} onValueChange={(v) => {
-                                const school = schools.find(s => s.SD_SCHUL_CODE === v);
-                                if (school) selectedOfficeCode = school.ATPT_OFCDC_SC_CODE;
-                            }}>
+                            <Select.Root type="single" bind:value={selectedSchool}>
                                 <Select.Trigger id="school-select" class="w-full bg-white">
                                     {schoolSelectContent}
                                 </Select.Trigger>
                                 <Select.Content>
                                     {#each schools as school}
-                                        <Select.Item value={school.SD_SCHUL_CODE} label={school.SCHUL_NM}>{school.SCHUL_NM}</Select.Item>
+                                        <Select.Item value={school.schoolCode} label={school.schoolName}>{school.schoolName}</Select.Item>
                                     {/each}
                                 </Select.Content>
                             </Select.Root>
@@ -247,18 +189,18 @@
                     {#if meals.length > 0}
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {#each meals as meal}
-                                <a href="/meal/{encodeURIComponent(getMealId(meal))}" class="group flex flex-col h-full relative overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-xs transition-all hover:shadow-md hover:border-blue-200 cursor-pointer">
+                                <a href="/meal/{encodeURIComponent(meal.id)}" class="group flex flex-col h-full relative overflow-hidden rounded-xl border border-gray-200 bg-white p-6 shadow-xs transition-all hover:shadow-md hover:border-blue-200 cursor-pointer">
                                     <div class="absolute top-0 left-0 w-full h-1 bg-linear-to-r 
-                                        {meal.MMEAL_SC_NM === '조식' ? 'from-orange-300 to-amber-400' : 
-                                         meal.MMEAL_SC_NM === '중식' ? 'from-blue-400 to-cyan-400' : 
+                                        {meal.type === '조식' ? 'from-orange-300 to-amber-400' : 
+                                         meal.type === '중식' ? 'from-blue-400 to-cyan-400' : 
                                          'from-indigo-500 to-purple-500'}">
                                     </div>
                                     <div class="font-bold text-xl mb-4 flex items-center justify-between">
-                                        <span class="text-gray-900">{meal.MMEAL_SC_NM}</span>
-                                        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{meal.CAL_INFO}</span>
+                                        <span class="text-gray-900">{meal.type}</span>
+                                        <span class="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{meal.calories}</span>
                                     </div>
                                     <div class="text-sm leading-relaxed text-gray-700 space-y-2 flex-1">
-                                        {#each meal.DDISH_NM.split('<br/>') as dish}
+                                        {#each meal.dishes.split('<br/>') as dish}
                                             <div class="flex items-start gap-2">
                                                 <span class="text-gray-300 mt-0.5">•</span>
                                                 <span class="flex-1">{dish}</span>
@@ -268,11 +210,11 @@
                                     <div class="mt-4 pt-3 border-t border-gray-100 flex items-center gap-4 text-sm text-gray-500">
                                         <div class="flex items-center gap-1.5">
                                             <ThumbsUp class="w-4 h-4" />
-                                            <span>{getVoteCount(meal)}</span>
+                                            <span>{meal.votes}</span>
                                         </div>
                                         <div class="flex items-center gap-1.5">
                                             <MessageSquare class="w-4 h-4" />
-                                            <span>{getCommentCount(meal)}</span>
+                                            <span>{meal.comments}</span>
                                         </div>
                                     </div>
                                 </a>
