@@ -13,5 +13,11 @@ CREATE TABLE IF NOT EXISTS comments (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS api_cache (
+    cache_key TEXT PRIMARY KEY,
+    response_data TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_votes_meal_id ON votes(meal_id);
 CREATE INDEX IF NOT EXISTS idx_comments_meal_id ON comments(meal_id);

@@ -1,71 +1,85 @@
 <script lang="ts">
-	import * as Select from "$lib/components/ui/select";
+    import { goto } from "$app/navigation";
+    import { page } from "$app/state";
+    import * as Select from "$lib/components/ui/select";
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { Calendar } from "$lib/components/ui/calendar";
     import { CalendarDate, today, getLocalTimeZone, type DateValue } from "@internationalized/date";
     import { Search, CircleAlert, ThumbsUp, MessageSquare } from "@lucide/svelte";
+    import type { SchoolInfo, MealInfo } from "$lib/types";
 
-    let name = $state("")
-    let schools = $state<any[]>([])
+    let name = $state(page.url.searchParams.get("name") || "")
+    let schools = $state<SchoolInfo[]>([])
+    let error = $state<string | null>(null)
 
-    let selectedSchool = $state<string>("")
+    let selectedSchool = $state<string>(page.url.searchParams.get("school") || "")
+    let selectedOfficeCode = $state<string>(page.url.searchParams.get("office") || "")
     const schoolSelectContent = $derived(
         schools.find((s) => s.SD_SCHUL_CODE === selectedSchool)?.SCHUL_NM ?? "학교를 선택해주세요"
     );
 
-    let selectedDate = $state<DateValue>(today(getLocalTimeZone()));
-
-    $effect(() => {
-        if (typeof localStorage !== 'undefined') {
-            const persistedName = localStorage.getItem('schoolName');
-            const persistedSchools = localStorage.getItem('schools');
-            const persistedSelectedSchool = localStorage.getItem('selectedSchool');
-            const persistedDate = localStorage.getItem('selectedDate');
-            
-            if (persistedName) name = persistedName;
-            if (persistedSchools) schools = JSON.parse(persistedSchools);
-            if (persistedSelectedSchool) selectedSchool = persistedSelectedSchool;
-            if (persistedDate) {
-                const parsed = JSON.parse(persistedDate);
-                selectedDate = new CalendarDate(parsed.year, parsed.month, parsed.day);
+    let selectedDate = $state<DateValue>((() => {
+        const dateParam = page.url.searchParams.get("date");
+        if (dateParam) {
+            const parsed = new Date(dateParam);
+            if (!isNaN(parsed.getTime())) {
+                return new CalendarDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
             }
         }
-    });
+        return today(getLocalTimeZone());
+    })());
+
+    function updateUrlParams() {
+        const url = new URL(window.location.href);
+        if (name) url.searchParams.set('name', name);
+        else url.searchParams.delete('name');
+        
+        if (selectedSchool) url.searchParams.set('school', selectedSchool);
+        else url.searchParams.delete('school');
+        
+        if (selectedOfficeCode) url.searchParams.set('office', selectedOfficeCode);
+        else url.searchParams.delete('office');
+        
+        if (selectedDate) {
+            url.searchParams.set('date', `${selectedDate.year}-${String(selectedDate.month).padStart(2, '0')}-${String(selectedDate.day).padStart(2, '0')}`);
+        }
+        
+        goto(url.toString(), { replaceState: true, keepFocus: true });
+    }
 
     $effect(() => {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('schoolName', name);
+        if (name !== undefined || selectedSchool !== undefined || selectedDate !== undefined || selectedOfficeCode !== undefined) {
+            updateUrlParams();
         }
     });
 
     $effect(() => {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('schools', JSON.stringify(schools));
-        }
-    });
-
-    $effect(() => {
-        if (typeof localStorage !== 'undefined') {
-            localStorage.setItem('selectedSchool', selectedSchool);
-        }
-    });
-
-    $effect(() => {
-        if (typeof localStorage !== 'undefined' && selectedDate) {
-            localStorage.setItem('selectedDate', JSON.stringify({
-                year: selectedDate.year, month: selectedDate.month, day: selectedDate.day
-            }));
+        if (name && schools.length === 0) {
+            search();
         }
     });
 
     async function search() {
         if (!name.trim()) return;
-        const res = await fetch(`/api/school/search/${name}`)
-        schools = (await res.json()).schoolInfo[1].row
+        error = null;
+        try {
+            const res = await fetch(`/api/school/search/${encodeURIComponent(name)}`)
+            if (!res.ok) throw new Error("학교 검색에 실패했습니다.");
+            const data = await res.json();
+            if (data.schoolInfo) {
+                schools = data.schoolInfo[1].row;
+            } else {
+                schools = [];
+                error = "검색 결과가 없습니다.";
+            }
+        } catch (e: any) {
+            error = e.message || "학교 검색 중 오류가 발생했습니다.";
+            schools = [];
+        }
     }
 
-    let meals = $state<any[]>([])
+    let meals = $state<MealInfo[]>([])
     let groupedMeals = $derived(() => {
         const groups: Record<string, any[]> = {};
         for (const meal of meals) {
@@ -92,14 +106,23 @@
     }
 
     $effect(() => {
-        if (selectedSchool && selectedDate) {
+        if (selectedSchool && schools.length > 0) {
+            const school = schools.find(s => s.SD_SCHUL_CODE === selectedSchool);
+            if (school) selectedOfficeCode = school.ATPT_OFCDC_SC_CODE;
+        }
+
+        if (selectedSchool && selectedDate && selectedOfficeCode) {
+            error = null;
             const dateStr = selectedDate.toString().replace(/-/g, "");
-            fetch(`/api/meal/${selectedSchool}?from=${dateStr}&to=${dateStr}`)
-                .then(res => res.json())
+            fetch(`/api/meal/${selectedSchool}?from=${dateStr}&to=${dateStr}&officeCode=${selectedOfficeCode}`)
+                .then(async res => {
+                    if (!res.ok) throw new Error("급식 정보를 불러오는데 실패했습니다.");
+                    return res.json();
+                })
                 .then(data => {
                     if (data.mealServiceDietInfo) {
                         const fetchedMeals = data.mealServiceDietInfo[1].row;
-                        meals = fetchedMeals.sort((a: any, b: any) => {
+                        meals = fetchedMeals.sort((a: MealInfo, b: MealInfo) => {
                             if (a.MLSV_YMD !== b.MLSV_YMD) {
                                 return a.MLSV_YMD.localeCompare(b.MLSV_YMD);
                             }
@@ -109,25 +132,32 @@
                         });
                     } else {
                         meals = []
+                        if (data.RESULT && data.RESULT.CODE !== "INFO-200") {
+                            error = data.RESULT.MESSAGE;
+                        }
                     }
                 })
+                .catch(e => {
+                    meals = [];
+                    error = e.message || "급식 정보를 불러오는 중 오류가 발생했습니다.";
+                });
         } else {
             meals = []
         }
     })
 
-    function getMealId(meal: any) {
-        return `${selectedSchool}-${meal.MLSV_YMD}-${meal.MMEAL_SC_NM}`;
+    function getMealId(meal: MealInfo) {
+        return `${meal.ATPT_OFCDC_SC_CODE}-${selectedSchool}-${meal.MLSV_YMD}-${meal.MMEAL_SC_NM}`;
     }
 
     let countsCache = $state<Record<string, { votes: number; comments: number }>>({});
 
-    function getVoteCount(meal: any) {
+    function getVoteCount(meal: MealInfo) {
         const mealId = getMealId(meal);
         return countsCache[mealId]?.votes || 0;
     }
 
-    function getCommentCount(meal: any) {
+    function getCommentCount(meal: MealInfo) {
         const mealId = getMealId(meal);
         return countsCache[mealId]?.comments || 0;
     }
@@ -181,7 +211,10 @@
                     {#if schools.length > 0}
                         <div class="space-y-2 animate-in fade-in slide-in-from-top-2">
                             <label for="school-select" class="text-sm font-medium text-gray-700">학교 선택</label>
-                            <Select.Root type="single" bind:value={selectedSchool}>
+                            <Select.Root type="single" bind:value={selectedSchool} onValueChange={(v) => {
+                                const school = schools.find(s => s.SD_SCHUL_CODE === v);
+                                if (school) selectedOfficeCode = school.ATPT_OFCDC_SC_CODE;
+                            }}>
                                 <Select.Trigger id="school-select" class="w-full bg-white">
                                     {schoolSelectContent}
                                 </Select.Trigger>
@@ -193,12 +226,18 @@
                             </Select.Root>
                         </div>
                     {/if}
+                    
+                    {#if error}
+                        <div class="text-sm text-red-500 font-medium">
+                            {error}
+                        </div>
+                    {/if}
                 </div>
                 
                 <div class="space-y-2 pt-4 border-t border-gray-100">
                     <span class="text-sm font-medium text-gray-700 block">날짜 선택</span>
                     <div class="flex justify-center">
-                        <Calendar bind:value={selectedDate} class="rounded-xl border shadow-xs bg-white" locale="ko-KR" />
+                        <Calendar type="single" bind:value={selectedDate} class="rounded-xl border shadow-xs bg-white" locale="ko-KR" />
                     </div>
                 </div>
             </div>

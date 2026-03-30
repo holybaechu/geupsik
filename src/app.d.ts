@@ -9,7 +9,6 @@ declare global {
 		interface Platform {
 			env: {
 				DB: D1Database;
-				KV: KVNamespace;
 			};
 			ctx: ExecutionContext;
 			caches: CacheStorage;

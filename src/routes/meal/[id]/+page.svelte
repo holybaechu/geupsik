@@ -1,16 +1,18 @@
 <script lang="ts">
-    import { page } from '$app/stores';
+    import { page } from '$app/state';
     import { Button } from "$lib/components/ui/button";
     import { Input } from "$lib/components/ui/input";
     import { ArrowLeft, ThumbsUp, MessageSquare, Send } from "@lucide/svelte";
     import { goto } from '$app/navigation';
+    import type { MealInfo } from "$lib/types";
 
-    const params = $derived($page.params as { id: string });
+    const params = $derived(page.params as { id: string });
     const mealId = $derived(decodeURIComponent(params.id));
     const parts = $derived(mealId.split('-'));
-    const schoolCode = $derived(parts[0] || '');
-    const date = $derived(parts[1] || '');
-    const mealType = $derived(parts[2] || '');
+    const officeCode = $derived(parts[0] || '');
+    const schoolCode = $derived(parts[1] || '');
+    const date = $derived(parts[2] || '');
+    const mealType = $derived(parts[3] || '');
 
     function formatDate(ymd: string) {
         if (!ymd || ymd.length !== 8) return ymd;
@@ -26,12 +28,13 @@
         "석식": "from-indigo-500 to-purple-500"
     };
 
-    let meal = $state<any>(null);
+    let meal = $state<MealInfo | null>(null);
     let votes = $state(0);
     let hasVoted = $state(false);
     let comments = $state<{id: number, text: string, created_at: string}[]>([]);
     let newComment = $state("");
     let loading = $state(true);
+    let error = $state<string | null>(null);
     let fingerprint = $state("");
 
     function getFingerprint() {
@@ -73,25 +76,40 @@
     }
 
     $effect(() => {
-        if (schoolCode && date) {
+        if (schoolCode && date && officeCode) {
             fingerprint = getFingerprint();
             checkIfVoted();
+            error = null;
 
-            fetch(`/api/meal/${schoolCode}?from=${date}&to=${date}`)
-                .then(res => res.json())
+            fetch(`/api/meal/${schoolCode}?from=${date}&to=${date}&officeCode=${officeCode}`)
+                .then(async res => {
+                    if (!res.ok) throw new Error("급식 정보를 불러오는데 실패했습니다.");
+                    return res.json();
+                })
                 .then(data => {
                     if (data.mealServiceDietInfo) {
                         const fetchedMeals = data.mealServiceDietInfo[1].row;
-                        meal = fetchedMeals.find((m: any) => m.MMEAL_SC_NM === mealType);
+                        meal = fetchedMeals.find((m: MealInfo) => m.MMEAL_SC_NM === mealType) || null;
+                        if (!meal) error = "해당하는 급식 정보를 찾을 수 없습니다.";
+                    } else {
+                        if (data.RESULT && data.RESULT.CODE !== "INFO-200") {
+                            error = data.RESULT.MESSAGE;
+                        } else {
+                            error = "급식 정보를 찾을 수 없습니다.";
+                        }
                     }
                     loading = false;
                 })
-                .catch(() => {
+                .catch(e => {
+                    error = e.message || "급식 정보를 불러오는 중 오류가 발생했습니다.";
                     loading = false;
                 });
 
             loadVotes();
             loadComments();
+        } else {
+            error = "잘못된 접근입니다.";
+            loading = false;
         }
     });
 
@@ -155,6 +173,11 @@
         {#if loading}
             <div class="flex items-center justify-center py-20">
                 <div class="text-gray-500">로딩 중...</div>
+            </div>
+        {:else if error}
+            <div class="text-center py-20">
+                <div class="text-red-500 mb-4 font-medium">{error}</div>
+                <Button onclick={() => goto('/')}>홈으로 돌아가기</Button>
             </div>
         {:else if meal}
             <div class="space-y-6">

@@ -7,22 +7,11 @@
     "binding": "ASSETS",
     "directory": ".svelte-kit/cloudflare"
   },
-  "workers_dev": true,
-  "preview_urls": true,
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1,
-    "logs": {
-      "enabled": true,
-      "head_sampling_rate": 1,
-      "persist": true,
-      "invocation_logs": true
-    },
-    "traces": {
-      "enabled": true,
-      "persist": true,
-      "head_sampling_rate": 1
-    }
+    "enabled": true
+  },
+  "placement": {
+    "mode": "smart"
   },
   "d1_databases": [
     {
@@ -30,11 +19,5 @@
       "database_name": "geupsik-db",
       "database_id": "08a216d8-c692-4380-b8af-fc298575ca7d"
     }
-  ],
-  "kv_namespaces": [
-    {
-      "binding": "KV",
-      "id": "96fe2b255069430aa1e81d97bfc7fa15"
-    },
   ]
 }

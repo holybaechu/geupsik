@@ -1,32 +1,48 @@
-import { API_BASE_URL, API_ATPT_OFCDC_SC_CODE, API_TYPE, CACHE_TTL } from "$lib/constants";
+import { API_BASE_URL, API_TYPE } from "$lib/constants";
 
 export async function GET({ params, platform }) {
     const { name } = params;
-    const cacheKey = `school_search:${name}`;
+    
+    const apiUrl = `${API_BASE_URL}/schoolInfo?Type=${API_TYPE}&SCHUL_NM=${encodeURIComponent(name)}`;
+    const db = platform?.env?.DB;
 
-    if (platform?.env?.KV) {
-        const cached = await platform.env.KV.get(cacheKey);
-        if (cached) {
-            return new Response(cached, {
-                headers: { "Content-Type": "application/json", "X-Cache": "HIT" },
-            });
+    if (db) {
+        try {
+            const cached = await db.prepare(
+                "SELECT response_data, created_at FROM api_cache WHERE cache_key = ?"
+            ).bind(apiUrl).first();
+
+            if (cached) {
+                const createdAt = new Date((cached.created_at as string).replace(' ', 'T') + 'Z');
+                const ageMs = Date.now() - createdAt.getTime();
+                
+                if (ageMs < 24 * 60 * 60 * 1000) {
+                    return new Response(cached.response_data as string, {
+                        headers: { "Content-Type": "application/json" }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Cache read error:", e);
         }
     }
-    
-    const res = await fetch(`${API_BASE_URL}/schoolInfo?Type=${API_TYPE}&ATPT_OFCDC_SC_CODE=${API_ATPT_OFCDC_SC_CODE}&SCHUL_NM=${encodeURIComponent(name)}`, {
-        method: "GET",
-    })
 
+    const res = await fetch(apiUrl, { method: "GET" });
     const data = await res.text();
 
-    if (platform?.env?.KV && res.ok) {
-        await platform.env.KV.put(cacheKey, data, { expirationTtl: CACHE_TTL });
+    if (db) {
+        try {
+            await db.prepare(
+                "INSERT INTO api_cache (cache_key, response_data, created_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(cache_key) DO UPDATE SET response_data=excluded.response_data, created_at=CURRENT_TIMESTAMP"
+            ).bind(apiUrl, data).run();
+        } catch (e) {
+            console.error("Cache write error:", e);
+        }
     }
 
     return new Response(data, {
         headers: {
             "Content-Type": "application/json",
-            "X-Cache": "MISS"
         },
-    })
+    });
 }
